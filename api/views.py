@@ -23,7 +23,6 @@ class UserProfileView(APIView):
     def get(self, request, *args, **kwargs):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)       
-
 class GitHubLogin(APIView):
     def post(self, request):
         code = request.data.get('code')
@@ -33,7 +32,7 @@ class GitHubLogin(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-       
+        # Step 1: Exchange code for an access token
         token_params = {
             "client_id": settings.GITHUB_CLIENT_ID,
             "client_secret": settings.GITHUB_CLIENT_SECRET,
@@ -55,6 +54,7 @@ class GitHubLogin(APIView):
         if not access_token:
             return Response({"error": "Access token not in response from GitHub"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Step 2: Fetch user data and email from GitHub API
         user_headers = {
             "Authorization": f"token {access_token}",
             "Accept": "application/vnd.github.v3+json"
@@ -75,25 +75,43 @@ class GitHubLogin(APIView):
         if not primary_email:
             return Response({"error": "Primary GitHub email not found or not public"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Step 3: Get or create the user in your database
         try:
             user = User.objects.get(email=primary_email)
         except User.DoesNotExist:
-            full_name = user_data.get('name', '').split()
-            first_name = full_name[0] if full_name else ''
-            last_name = full_name[1] if len(full_name) > 1 else ''
+            # This block runs ONLY if the user is new
+            
+            # Safely get and split the user's name
+            full_name = user_data.get('name') # Get the name, which might be None
+            first_name = ""
+            last_name = ""
+            if full_name:
+                name_parts = full_name.split()
+                first_name = name_parts[0]
+                if len(name_parts) > 1:
+                    last_name = " ".join(name_parts[1:]) # Handle names with multiple parts
+            
+            # Ensure username is unique; GitHub login is a good fallback
+            username = user_data.get('login')
+            if User.objects.filter(username=username).exists():
+                # Append a short unique hash if the username is already taken
+                import uuid
+                username = f"{username}_{uuid.uuid4().hex[:4]}"
 
             user = User.objects.create_user(
-                username=user_data.get('login'),
+                username=username,
                 email=primary_email,
                 first_name=first_name,
-                last_name=last_name
+                last_name=last_name,
+                password=None # Social auth users don't need a password
             )
+
+        # Step 4: Generate JWT tokens for the user
         refresh = RefreshToken.for_user(user)
         return Response({
             'refresh_token': str(refresh),
             'access_token': str(refresh.access_token),
         })
-
 
 
 @api_view(['POST'])
