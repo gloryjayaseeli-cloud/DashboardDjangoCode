@@ -33,6 +33,7 @@ class GitHubLogin(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+       
         token_params = {
             "client_id": settings.GITHUB_CLIENT_ID,
             "client_secret": settings.GITHUB_CLIENT_SECRET,
@@ -45,55 +46,55 @@ class GitHubLogin(APIView):
             headers=headers
         )
 
+        if not token_response.ok:
+            return Response({"error": "Failed to obtain access token from GitHub"}, status=status.HTTP_400_BAD_REQUEST)
+
         token_data = token_response.json()
         access_token = token_data.get("access_token")
 
         if not access_token:
-            return Response({"error": "Failed to obtain access token"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Access token not in response from GitHub"}, status=status.HTTP_400_BAD_REQUEST)
 
         user_headers = {
             "Authorization": f"token {access_token}",
             "Accept": "application/vnd.github.v3+json"
         }
         user_response = requests.get("https://api.github.com/user", headers=user_headers)
+        if not user_response.ok:
+            return Response({"error": "Failed to fetch user data from GitHub"}, status=status.HTTP_400_BAD_REQUEST)
+        
         user_data = user_response.json()
         
-       
         email_response = requests.get("https://api.github.com/user/emails", headers=user_headers)
-        emails = email_response.json()
         if not email_response.ok:
+            return Response({"error": "Failed to fetch emails from GitHub."}, status=status.HTTP_400_BAD_REQUEST)
 
-         error_details = email_response.json()
-         return Response(
-        {"error": "Failed to fetch emails from GitHub.", "details": error_details.get("message")},
-        status=status.HTTP_400_BAD_REQUEST
-         )
-
-
-        
+        emails = email_response.json()
         primary_email = next((email['email'] for email in emails if email['primary']), None)
         
         if not primary_email:
-            return Response({"error": "GitHub email not found or not public"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Primary GitHub email not found or not public"}, status=status.HTTP_400_BAD_REQUEST)
 
-     
         try:
             user = User.objects.get(email=primary_email)
         except User.DoesNotExist:
+            full_name = user_data.get('name', '').split()
+            first_name = full_name[0] if full_name else ''
+            last_name = full_name[1] if len(full_name) > 1 else ''
+
             user = User.objects.create_user(
                 username=user_data.get('login'),
                 email=primary_email,
-                first_name=user_data.get('name', '').split(' ')[0]
-              
+                first_name=first_name,
+                last_name=last_name
             )
-            user.save()
-            
-        # 4. Generate JWTs for the user
         refresh = RefreshToken.for_user(user)
         return Response({
             'refresh_token': str(refresh),
             'access_token': str(refresh.access_token),
         })
+
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
