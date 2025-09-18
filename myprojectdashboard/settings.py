@@ -16,7 +16,7 @@ from datetime import timedelta
 
 import os
 import environ 
-
+import dj_database_url
 
 env = environ.Env(
    
@@ -36,9 +36,10 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = 'django-insecure-v1(^a8a9(*l55vf715*w7$e^c7blcmi*vnxnsmuxqvg2xnc(mp'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG= os.environ.get("DEBUG","False").lower()=="true"
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS").split(" ") 
+# []
 
 
 # Application definition
@@ -100,6 +101,8 @@ DATABASES = {
     }
 }
 
+databaseUrl=os.environ.get("DBURL")
+DATABASES['default']=dj_database_url.parse(databaseUrl)
 
 
 
@@ -199,5 +202,5 @@ OAUTH2_PROVIDER = {
     'ACCESS_TOKEN_EXPIRE_SECONDS': 7200,
     'REFRESH_TOKEN_EXPIRE_SECONDS': 86400,
 }
-GITHUB_CLIENT_ID=env("GITHUB_CLIENT_ID")
-GITHUB_CLIENT_SECRET=env("GITHUB_CLIENT_SECRET")
+GITHUB_CLIENT_ID=os.environ.get("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET=os.environ.get("GITHUB_CLIENT_SECRET")
