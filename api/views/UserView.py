@@ -34,7 +34,7 @@ class GitHubLogin(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Step 1: Exchange code for an access token
+
         token_params = {
             "client_id": settings.GITHUB_CLIENT_ID,
             "client_secret": settings.GITHUB_CLIENT_SECRET,
@@ -56,7 +56,6 @@ class GitHubLogin(APIView):
         if not access_token:
             return Response({"error": "Access token not in response from GitHub"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Step 2: Fetch user data and email from GitHub API
         user_headers = {
             "Authorization": f"token {access_token}",
             "Accept": "application/vnd.github.v3+json"
@@ -140,6 +139,15 @@ def user_list(request):
     return Response(serializer.data)
 
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_detail_me(request):
+    serializer = UserSerializer(request.user)
+    return Response(serializer.data)
+
+
+
 @api_view(['PATCH'])
 @permission_classes([IsAdminUser])
 def change_user_role(request, user_id):
@@ -147,7 +155,6 @@ def change_user_role(request, user_id):
     Allows an admin user to change another user's role.
     Expects a JSON body with a "role" key: {"role": "admin"} or {"role": "member"}.
     """
-   
     try:
         user_to_modify = User.objects.get(pk=user_id)
     except User.DoesNotExist:
@@ -156,7 +163,6 @@ def change_user_role(request, user_id):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    
     new_role = request.data.get('role')
 
     if new_role not in ['admin', 'member']:
@@ -171,35 +177,26 @@ def change_user_role(request, user_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-  
+    profile = user_to_modify.profile
+
+
+    profile.role = new_role
+    profile.save(update_fields=['role'])
+
+    user_to_modify.is_staff = (new_role == 'admin')
+    user_to_modify.save(update_fields=['is_staff'])
+
+
     if new_role == 'admin':
-        user_to_modify.is_staff = True
         message = f"User '{user_to_modify.username}' has been promoted to admin."
     else: 
-        user_to_modify.is_staff = False
         message = f"User '{user_to_modify.username}' has been demoted to member."
 
-    
-    user_to_modify.save(update_fields=['is_staff'])
-    
-  
-
+    serializer = UserSerializer(user_to_modify)
     return Response(
         {
             'message': message,
-            'user': {
-                'id': user_to_modify.id,
-                'username': user_to_modify.username,
-                'is_staff': user_to_modify.is_staff
-            }
+            'user': serializer.data
         },
         status=status.HTTP_200_OK
     )
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def user_detail_me(request):
-    serializer = UserSerializer(request.user)
-    return Response(serializer.data)
-

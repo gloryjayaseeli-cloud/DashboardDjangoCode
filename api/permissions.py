@@ -1,12 +1,8 @@
-# yourapp/permissions.py
-from rest_framework.permissions import BasePermission
-
-class IsAdminUser(BasePermission):
+from rest_framework import permissions
+class IsAdminUser(permissions.BasePermission):
     """
-    Custom permission to only allow users in the 'Admin' group.
+    Custom permission to only allow admin users (is_staff=True).
     """
-    message = "You do not have permission to perform this action."
-
     def has_permission(self, request, view):
-        # Check if the user is authenticated and is a member of the target group.
-        return request.user and request.user.groups.filter(name='Admin').exists()
+      
+        return request.user and request.user.is_staff
