@@ -54,42 +54,29 @@ def task_list_create(request, project_pk):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def task_detail_update_delete(request, project_pk, task_pk):
-#     """
-#     Retrieve, update or delete a task instance based on its ID.
-#     The user must be the owner of the task to modify it.
-#     """
-
-#     try:
-     
-#         Project.objects.get(pk=project_pk, owner=request.user)
-#     except Project.DoesNotExist:
-#         return Response({'error': 'Project not found.'}, status=status.HTTP_404_NOT_FOUND)
+    """
+    Retrieve, update or delete a task instance.
+    The user must be the project owner OR an admin to modify it.
+    """
     try:
-       
         project = Project.objects.get(pk=project_pk)
         task = Task.objects.get(pk=task_pk, project=project)
     except (Project.DoesNotExist, Task.DoesNotExist):
         return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-
     is_admin = request.user.is_staff
     is_project_owner = (project.owner == request.user)
 
     if not (is_admin or is_project_owner):
-      return Response(
+        return Response(
             {'detail': 'You do not have permission to perform this action.'},
             status=status.HTTP_403_FORBIDDEN
         )
         
-    try:
-        task = Task.objects.get(pk=task_pk, project__pk=project_pk, owner=request.user)
-    except Task.DoesNotExist:
-        return Response({'error': 'Task not found or you do not have permission.'}, status=status.HTTP_404_NOT_FOUND)
-
+   
     if request.method == 'GET':
         serializer = TaskSerializer(task)
         return Response(serializer.data)
@@ -103,4 +90,5 @@ def task_detail_update_delete(request, project_pk, task_pk):
 
     elif request.method == 'DELETE':
         task.delete()
-        return Response({'message': 'task is deleted successfully.'},status=status.HTTP_200_OK)
+        return Response({'message': 'Task deleted successfully.'}, status=status.HTTP_200_OK)
+    
