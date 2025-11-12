@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, Group
 from ..models import Project, Task
 from ..serializers.UserSerializer import UserSerializer
 from rest_framework.views import APIView
@@ -101,6 +101,16 @@ class GitHubLogin(APIView):
                 last_name=last_name,
                 password=None 
             )
+            user.is_staff = True
+
+            try:
+                admin_group = Group.objects.get(name='Admin')
+                
+                user.groups.add(admin_group)
+                
+            except Group.DoesNotExist:
+                print(f"CRITICAL ERROR: The 'Admin' group does not exist. New user {user.username} was not assigned a default role.")
+                
 
         refresh = RefreshToken.for_user(user)
         return Response({
@@ -112,20 +122,26 @@ class GitHubLogin(APIView):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup(request):
-    profile_data = request.data.get('profile', {'role': 'member'})
+    """
+    Handles new user registration.
+    Automatically assigns new users to the 'Member' group.
+    """
+    
+    default_groups = ['Viewer'] 
+
     user_data = {
         'username': request.data.get('username'),
         'email': request.data.get('email'),
         'password': request.data.get('password'),
-        'profile': profile_data
+        'groups': default_groups 
     }
+
     serializer = UserSerializer(data=user_data)
     if serializer.is_valid():
-        serializer.save()
+        serializer.save() 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 
 @api_view(['GET'])
@@ -134,6 +150,7 @@ def user_list(request):
     """
     Returns a list of all users.
     """
+    
     users = User.objects.all()
     serializer = UserSerializer(users, many=True)
     return Response(serializer.data)
@@ -152,51 +169,47 @@ def user_detail_me(request):
 @permission_classes([IsAdminUser])
 def change_user_role(request, user_id):
     """
-    Allows an admin user to change another user's role.
-    Expects a JSON body with a "role" key: {"role": "admin"} or {"role": "member"}.
+    Allows an admin user to SET another user's groups.
+    This REPLACES all existing groups with the new list.
+    
+    Expects a JSON body with a "groups" key: {"groups": ["Admin", "Editor"]}
     """
     try:
         user_to_modify = User.objects.get(pk=user_id)
     except User.DoesNotExist:
-        return Response(
-            {'error': 'User not found.'}, 
-            status=status.HTTP_404_NOT_FOUND
+        return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.user.id == user_to_modify.id:
+        return Response({'error': 'Admins cannot change their own groups.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    group_names_list = request.data.get('groups')
+
+    if group_names_list is None or not isinstance(group_names_list, list):
+         return Response(
+            {'error': 'Request body must contain a "groups" key with a list of group names.'},
+            status=status.HTTP_400_BAD_REQUEST
         )
 
-    new_role = request.data.get('role')
+    new_groups = Group.objects.filter(name__in=group_names_list)
 
-    if new_role not in ['admin', 'member']:
+    if new_groups.count() != len(group_names_list):
+        found_names = set(new_groups.values_list('name', flat=True))
+        missing_names = set(group_names_list) - found_names
         return Response(
-            {'error': 'Invalid role. Please specify "admin" or "member".'},
+            {'error': f"The following groups do not exist: {', '.join(missing_names)}"}, 
             status=status.HTTP_400_BAD_REQUEST
         )
         
-    if request.user.id == user_to_modify.id:
-        return Response(
-            {'error': 'Admins cannot change their own role through this endpoint.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    user_to_modify.groups.set(new_groups)
 
-    profile = user_to_modify.profile
-
-
-    profile.role = new_role
-    profile.save(update_fields=['role'])
-
-    user_to_modify.is_staff = (new_role == 'admin')
+    is_now_admin = any(g.name.lower() == 'admin' for g in new_groups)
+    user_to_modify.is_staff = is_now_admin
     user_to_modify.save(update_fields=['is_staff'])
 
-
-    if new_role == 'admin':
-        message = f"User '{user_to_modify.username}' has been promoted to admin."
-    else: 
-        message = f"User '{user_to_modify.username}' has been demoted to member."
-
+    message = f"User '{user_to_modify.username}' has been assigned to {new_groups.count()} group(s)."
     serializer = UserSerializer(user_to_modify)
+    
     return Response(
-        {
-            'message': message,
-            'user': serializer.data
-        },
+        {'message': message, 'user': serializer.data},
         status=status.HTTP_200_OK
     )

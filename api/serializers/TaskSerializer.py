@@ -16,3 +16,18 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = ['id', 'project', 'description', 'due_date', 'status', 'owner']
         read_only_fields = ['project']
+    def create(self, validated_data):
+        """
+        Override the create method to inject the project
+        from the view's context.
+        """
+        project = self.context['project']
+
+        user = self.context['request'].user
+
+        validated_data['project'] = project
+        
+        if 'owner' not in validated_data:
+            validated_data['owner'] = user
+
+        return Task.objects.create(**validated_data)
